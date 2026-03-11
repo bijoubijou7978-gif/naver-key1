@@ -67,91 +67,99 @@ def fetch_related_keywords(keyword):
 st.title("📊 Naver Keyword Pro")
 st.markdown("이미지 형식의 테이블 리포트를 생성합니다.")
 
+# 세션 상태 초기화
+if 'analyzed' not in st.session_state:
+    st.session_state.analyzed = False
+    st.session_state.table_data = []
+    st.session_state.all_trend = None
+    st.session_state.related_volumes = {}
+
 with st.sidebar:
     st.header("⚙️ 설정")
     keyword_input = st.text_input("분석 키워드 (쉼표 구분)", "주식, 캠핑")
-    keywords = [k.strip() for k in keyword_input.split(",") if k.strip()]
+    keywords_list = [k.strip() for k in keyword_input.split(",") if k.strip()]
     
     col1, col2 = st.columns(2)
     start_date = col1.date_input("시작일", datetime.date.today() - datetime.timedelta(days=30))
     end_date = col2.date_input("종료일", datetime.date.today())
     
-    analyze_btn = st.button("데이터 분석 실행", use_container_width=True)
-
-if analyze_btn and keywords:
-    with st.spinner('실시간 데이터를 집계 중입니다...'):
-        # 각 디바이스별 데이터 호출
-        res_pc = fetch_naver_trend(keywords, start_date, end_date, device='pc')
-        res_mo = fetch_naver_trend(keywords, start_date, end_date, device='mo')
+    if st.button("데이터 분석 실행", use_container_width=True):
+        st.session_state.analyzed = True
+        st.session_state.current_keywords = keywords_list
+        st.session_state.related_volumes = {} # 초기화
         
-        table_data = []
-        for i, kw in enumerate(keywords):
-            # 블로그 콘텐츠 수
-            blog_count = fetch_total_results(kw, start_date, end_date)
+        with st.spinner('실시간 데이터를 집계 중입니다...'):
+            res_pc = fetch_naver_trend(keywords_list, start_date, end_date, device='pc')
+            res_mo = fetch_naver_trend(keywords_list, start_date, end_date, device='mo')
+            st.session_state.all_trend = fetch_naver_trend(keywords_list, start_date, end_date)
             
-            # PC/모바일 지수 (기간 내 평균값 추출)
-            pc_val = 0
-            mo_val = 0
-            
-            if res_pc:
-                for r in res_pc['results']:
-                    if r['title'] == kw and r['data']:
-                        pc_val = sum([d['ratio'] for d in r['data']]) / len(r['data'])
-            
-            if res_mo:
-                for r in res_mo['results']:
-                    if r['title'] == kw and r['data']:
-                        mo_val = sum([d['ratio'] for d in r['data']]) / len(r['data'])
-            
-            table_data.append({
-                "NO": i + 1,
-                "키워드": kw,
-                "PC 지수": int(pc_val),
-                "모바일 지수": int(mo_val),
-                "지수 합계": int(pc_val + mo_val),
-                "블로그 게시글수": blog_count
-            })
-        
-        # 테이블 출력
-        st.subheader("📋 검색 분석 결과 보고서")
-        df = pd.DataFrame(table_data)
-        
-        # 스타일링된 테이블 출력
-        st.table(df.set_index('NO'))
-        st.caption("※ 지수는 기간 내 최대 검색량을 100으로 둔 상대적 수치입니다.")
-
-        # 연관 검색어 섹션 추가
-        if keywords:
-            st.divider()
-            st.subheader(f"🔍 '{keywords[0]}' 연관/추천 검색어")
-            related = fetch_related_keywords(keywords[0])
-            if related:
-                # 필터링 (검색어 자신 제외)
-                related_filtered = [r for r in related if r != keywords[0]]
+            table_data = []
+            for i, kw in enumerate(keywords_list):
+                blog_count = fetch_total_results(kw, start_date, end_date)
+                pc_val = 0
+                mo_val = 0
+                if res_pc:
+                    for r in res_pc['results']:
+                        if r['title'] == kw and r['data']:
+                            pc_val = sum([d['ratio'] for d in r['data']]) / len(r['data'])
+                if res_mo:
+                    for r in res_mo['results']:
+                        if r['title'] == kw and r['data']:
+                            mo_val = sum([d['ratio'] for d in r['data']]) / len(r['data'])
                 
-                # 가로로 나열
-                cols = st.columns(min(len(related_filtered), 5))
-                for idx, r_kw in enumerate(related_filtered[:10]): # 최대 10개
-                    with cols[idx % 5]:
-                        if st.button(r_kw, key=f"btn_{r_kw}", use_container_width=True):
-                            # 클릭 시 해당 연관 검색어의 게시글 수를 가져와 바로 아래 표시
-                            vol = fetch_total_results(r_kw, start_date, end_date)
-                            st.write(f"📊 **{vol:,}**건")
-            else:
-                st.write("연관 검색어를 불러올 수 없습니다.")
+                table_data.append({
+                    "NO": i + 1,
+                    "키워드": kw,
+                    "PC 지수": int(pc_val),
+                    "모바일 지수": int(mo_val),
+                    "지수 합계": int(pc_val + mo_val),
+                    "블로그 게시글수": blog_count
+                })
+            st.session_state.table_data = table_data
 
-        # 트렌드 차트 추가 (시각화 보조)
+# 결과 출력 (세션 상태 기반)
+if st.session_state.analyzed:
+    st.subheader("📋 검색 분석 결과 보고서")
+    df = pd.DataFrame(st.session_state.table_data)
+    st.table(df.set_index('NO'))
+    st.caption("※ 지수는 기간 내 최대 검색량을 100으로 둔 상대적 수치입니다.")
+
+    # 연관 검색어 섹션
+    main_kw = st.session_state.current_keywords[0]
+    st.divider()
+    st.subheader(f"🔍 '{main_kw}' 연관/추천 검색어")
+    related = fetch_related_keywords(main_kw)
+    
+    if related:
+        related_filtered = [r for r in related if r != main_kw]
+        cols = st.columns(min(len(related_filtered), 5))
+        
+        for idx, r_kw in enumerate(related_filtered[:10]):
+            with cols[idx % 5]:
+                # 이미 조회한 적이 있는 키워드인지 확인
+                if st.button(r_kw, key=f"btn_{r_kw}", use_container_width=True):
+                    # 클릭 시 데이터 가져와서 세션에 저장
+                    vol = fetch_total_results(r_kw, start_date, end_date)
+                    st.session_state.related_volumes[r_kw] = vol
+                
+                # 세션에 데이터가 있으면 바로 아래에 표시
+                if r_kw in st.session_state.related_volumes:
+                    st.markdown(f"<div style='text-align:center; color:#38bdf8; font-weight:bold;'>📊 {st.session_state.related_volumes[r_kw]:,}건</div>", unsafe_allow_html=True)
+    else:
+        st.write("연관 검색어를 불러올 수 없습니다.")
+
+    # 트렌드 차트
+    if st.session_state.all_trend:
         st.divider()
         st.subheader("📈 시계열 트렌드 변화")
-        all_trend = fetch_naver_trend(keywords, start_date, end_date)
-        if all_trend:
-            chart_data = []
-            for res in all_trend['results']:
-                for d in res['data']:
-                    chart_data.append({'Date': d['period'], 'Keyword': res['title'], 'Value': d['ratio']})
-            
-            chart_df = pd.DataFrame(chart_data)
-            st.line_chart(chart_df.pivot(index='Date', columns='Keyword', values='Value'))
+        chart_data = []
+        for res in st.session_state.all_trend['results']:
+            for d in res['data']:
+                chart_data.append({'Date': d['period'], 'Keyword': res['title'], 'Value': d['ratio']})
+        chart_df = pd.DataFrame(chart_data)
+        st.line_chart(chart_df.pivot(index='Date', columns='Keyword', values='Value'))
+else:
+    st.info("왼쪽 대시보드에서 키워드를 입력하고 분석을 시작하세요.")
 
 else:
     st.info("왼쪽 대시보드에서 키워드를 입력하고 분석을 시작하세요.")
