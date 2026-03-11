@@ -50,6 +50,19 @@ def fetch_total_results(keyword, start_date, end_date):
     except:
         return 0
 
+def fetch_related_keywords(keyword):
+    """네이버 자동완성 API를 활용한 추천 키워드 추출"""
+    encText = urllib.parse.quote(keyword)
+    url = f"https://ac.search.naver.com/nx/ac?q={encText}&r_format=json&t_koreng=1&q_enc=UTF-8&st=100&r_lt=100"
+    try:
+        response = urllib.request.urlopen(url)
+        data = json.loads(response.read().decode('utf-8'))
+        # [[word, index], [word, index], ...] 형식에서 word만 추출
+        items = data['items'][0]
+        return [item[0] for item in items]
+    except:
+        return []
+
 # 메인 UI
 st.title("📊 Naver Keyword Pro")
 st.markdown("이미지 형식의 테이블 리포트를 생성합니다.")
@@ -93,9 +106,9 @@ if analyze_btn and keywords:
             table_data.append({
                 "NO": i + 1,
                 "키워드": kw,
-                "PC 지수": round(pc_val, 2),
-                "모바일 지수": round(mo_val, 2),
-                "지수 합계": round(pc_val + mo_val, 2),
+                "PC 지수": int(pc_val),
+                "모바일 지수": int(mo_val),
+                "지수 합계": int(pc_val + mo_val),
                 "블로그 게시글수": blog_count
             })
         
@@ -105,8 +118,24 @@ if analyze_btn and keywords:
         
         # 스타일링된 테이블 출력
         st.table(df.set_index('NO'))
-        
         st.caption("※ 지수는 기간 내 최대 검색량을 100으로 둔 상대적 수치입니다.")
+
+        # 연관 검색어 섹션 추가
+        if keywords:
+            st.divider()
+            st.subheader(f"🔍 '{keywords[0]}' 연관/추천 검색어")
+            related = fetch_related_keywords(keywords[0])
+            if related:
+                # 필터링 (검색어 자신 제외)
+                related_filtered = [r for r in related if r != keywords[0]]
+                
+                # 가로로 나열
+                cols = st.columns(min(len(related_filtered), 5))
+                for idx, r_kw in enumerate(related_filtered[:10]): # 최대 10개
+                    with cols[idx % 5]:
+                        st.code(r_kw, language=None)
+            else:
+                st.write("연관 검색어를 불러올 수 없습니다.")
 
         # 트렌드 차트 추가 (시각화 보조)
         st.divider()
