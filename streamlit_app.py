@@ -160,6 +160,3 @@ if st.session_state.analyzed:
         st.line_chart(chart_df.pivot(index='Date', columns='Keyword', values='Value'))
 else:
     st.info("왼쪽 대시보드에서 키워드를 입력하고 분석을 시작하세요.")
-
-else:
-    st.info("왼쪽 대시보드에서 키워드를 입력하고 분석을 시작하세요.")
