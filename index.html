@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keyword Trend Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --accent-primary: #38bdf8;
+            --accent-secondary: #818cf8;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .search-area {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 2rem;
+            border-radius: 1.5rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        input {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 0.8rem 1.2rem;
+            border-radius: 0.8rem;
+            flex: 1;
+            min-width: 200px;
+            outline: none;
+            transition: border 0.3s;
+        }
+
+        input:focus {
+            border-color: var(--accent-primary);
+        }
+
+        button {
+            background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            border: none;
+            padding: 0.8rem 2rem;
+            border-radius: 0.8rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1.5rem;
+            border-radius: 1.5rem;
+            height: 500px;
+        }
+
+        .card-header {
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--accent-primary);
+        }
+
+        #main-chart {
+            width: 100%;
+            height: 100%;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 1rem;
+            color: var(--accent-primary);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>Naver Trend Dashboard</h1>
+        <p style="color: var(--text-dim)">키워드별 PC/모바일 검색 트렌드 분석</p>
+    </header>
+
+    <div class="search-area">
+        <input type="text" id="keywordInput" placeholder="키워드를 입력하세요 (쉼표로 구분, 예: 캠핑,등산)">
+        <input type="date" id="startDate">
+        <input type="date" id="endDate">
+        <button onclick="updateDashboard()">분석하기</button>
+    </div>
+
+    <div id="loader" class="loading">데이터를 분석 중입니다...</div>
+
+    <div id="volume-cards" style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;"></div>
+
+    <div class="dashboard-grid">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">검색 트렌드 (통합/PC/모바일)</span>
+            </div>
+            <div id="main-chart"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 초기 날짜 설정
+    const today = new Date();
+    const lastYear = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
+    document.getElementById('endDate').value = today.toISOString().split('T')[0];
+    document.getElementById('startDate').value = lastYear.toISOString().split('T')[0];
+
+    let chart = echarts.init(document.getElementById('main-chart'), 'dark');
+
+    async function updateDashboard() {
+        const keywords = document.getElementById('keywordInput').value.split(',').map(k => k.trim()).filter(k => k);
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+
+        if (keywords.length === 0) {
+            alert('키워드를 입력해주세요.');
+            return;
+        }
+
+        document.getElementById('loader').style.display = 'block';
+
+        try {
+            const response = await fetch('/api/trend', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keywords, startDate, endDate })
+            });
+
+            const data = await response.json();
+            renderVolumeCards(data.volumes);
+            renderChart(data);
+        } catch (error) {
+            console.error('Error:', error);
+            alert('데이터 로드 중 오류가 발생했습니다.');
+        } finally {
+            document.getElementById('loader').style.display = 'none';
+        }
+    }
+
+    function renderVolumeCards(volumes) {
+        const container = document.getElementById('volume-cards');
+        container.innerHTML = '';
+        
+        for (const [kw, count] of Object.entries(volumes)) {
+            const card = document.createElement('div');
+            card.style.cssText = `
+                background: var(--card-bg);
+                backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                padding: 1.5rem;
+                border-radius: 1rem;
+                flex: 1;
+                min-width: 200px;
+                text-align: center;
+                border-bottom: 4px solid var(--accent-primary);
+            `;
+            card.innerHTML = `
+                <div style="color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0.5rem;">${kw} 관련 누적 콘텐츠수</div>
+                <div style="font-size: 1.8rem; font-weight: 800; color: white;">${count.toLocaleString()}</div>
+                <div style="color: var(--accent-secondary); font-size: 0.8rem; margin-top: 0.5rem;">네이버 블로그 기준</div>
+            `;
+            container.appendChild(card);
+        }
+    }
+
+    function renderChart(data) {
+        const dates = data.total.results[0].data.map(d => d.period);
+        const series = [];
+
+        data.total.results.forEach(res => {
+            series.push({
+                name: `${res.title} (통합)`,
+                type: 'line',
+                smooth: true,
+                data: res.data.map(d => d.ratio),
+                lineStyle: { width: 3 }
+            });
+        });
+
+        if (data.pc && data.pc.results) {
+            data.pc.results.forEach(res => {
+                series.push({
+                    name: `${res.title} (PC)`,
+                    type: 'line',
+                    smooth: true,
+                    dashArray: [5, 5],
+                    data: res.data.map(d => d.ratio),
+                    itemStyle: { opacity: 0.6 }
+                });
+            });
+        }
+
+        if (data.mo && data.mo.results) {
+            data.mo.results.forEach(res => {
+                series.push({
+                    name: `${res.title} (모바일)`,
+                    type: 'line',
+                    smooth: true,
+                    data: res.data.map(d => d.ratio),
+                    lineStyle: { width: 2, type: 'dotted' }
+                });
+            });
+        }
+
+        const option = {
+            backgroundColor: 'transparent',
+            tooltip: {
+                trigger: 'axis',
+                backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                borderColor: '#38bdf8',
+                textStyle: { color: '#fff' }
+            },
+            legend: {
+                data: series.map(s => s.name),
+                bottom: 10,
+                textStyle: { color: '#94a3b8' }
+            },
+            grid: {
+                left: '3%',
+                right: '4%',
+                bottom: '15%',
+                containLabel: true
+            },
+            xAxis: {
+                type: 'category',
+                boundaryGap: false,
+                data: dates,
+                axisLine: { lineStyle: { color: '#475569' } }
+            },
+            yAxis: {
+                type: 'value',
+                name: '검색 상대 지수 (0-100)',
+                splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+                axisLine: { lineStyle: { color: '#475569' } }
+            },
+            series: series
+        };
+
+        chart.setOption(option, true);
+    }
+
+    // 창 크기 조절 시 차트 리사이즈
+    window.addEventListener('resize', () => chart.resize());
+</script>
+
+</body>
+</html>
