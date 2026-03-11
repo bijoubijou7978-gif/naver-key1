@@ -133,7 +133,10 @@ if analyze_btn and keywords:
                 cols = st.columns(min(len(related_filtered), 5))
                 for idx, r_kw in enumerate(related_filtered[:10]): # 최대 10개
                     with cols[idx % 5]:
-                        st.code(r_kw, language=None)
+                        if st.button(r_kw, key=f"btn_{r_kw}", use_container_width=True):
+                            # 클릭 시 해당 연관 검색어의 게시글 수를 가져와 바로 아래 표시
+                            vol = fetch_total_results(r_kw, start_date, end_date)
+                            st.write(f"📊 **{vol:,}**건")
             else:
                 st.write("연관 검색어를 불러올 수 없습니다.")
 
