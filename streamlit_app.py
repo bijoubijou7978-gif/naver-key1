@@ -11,7 +11,7 @@ import base64
 # 페이지 설정
 st.set_page_config(page_title="Naver Pro Keyword Master", layout="wide", initial_sidebar_state="expanded")
 
-# 프리미엄 디자인을 위한 커스텀 CSS 주입
+# 프리미엄 디자인을 위한 커스텀 CSS 주입 (밝은/어두운 테마 모두 대응)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
@@ -20,46 +20,39 @@ st.markdown("""
         font-family: 'Pretendard', sans-serif;
     }
     
-    .main {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        color: #f8fafc;
-    }
-    
-    /* 카드 스타일 (Glassmorphism) */
-    .stTable, .stDataFrame {
-        background: rgba(255, 255, 255, 0.03) !important;
-        border-radius: 15px !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        backdrop-filter: blur(10px);
-        padding: 10px;
-    }
-    
-    div[data-testid="stMetricValue"] {
-        color: #38bdf8 !important;
+    /* 헤더 스타일 */
+    .main-header {
+        font-size: 2.5rem;
         font-weight: 800;
+        margin-bottom: 2rem;
+        color: #03c75a; /* 네이버 그린 */
     }
     
+    /* 카드 스타일 */
+    [data-testid="stMetricValue"] {
+        color: #03c75a !important;
+    }
+    
+    /* 버튼 스타일 가시성 확보 */
     .stButton > button {
-        border-radius: 12px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        background: rgba(255, 255, 255, 0.05);
-        color: white;
+        background-color: #03c75a !important;
+        color: white !important;
+        border: none !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        padding: 0.5rem 1rem !important;
     }
     
     .stButton > button:hover {
-        background: #38bdf8 !important;
-        color: #0f172a !important;
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.3);
+        background-color: #02b350 !important;
+        box-shadow: 0 4px 12px rgba(3, 199, 90, 0.2) !important;
     }
-    
-    /* 서브헤더 디자인 */
-    h1, h2, h3 {
-        background: linear-gradient(90deg, #38bdf8, #818cf8);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: 800 !important;
+
+    /* 테이블 가독성 강화 */
+    div[data-testid="stTable"] {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #eee;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -87,11 +80,12 @@ def fetch_actual_search_volume(keywords):
     method = "GET"
     uri = "/keywordstool"
     
-    # 파라미터 구성 (keywords 파라미터는 정확한 키워드 조회를 지원합니다)
-    # 콤마(,)는 구분자로 인식되어야 하므로 인코딩에서 제외(safe=',')합니다.
-    kw_str = ",".join(keywords[:5])
-    kw_encoded = urllib.parse.quote(kw_str, safe=",")
-    full_url = f"https://api.searchad.naver.com{uri}?keywords={kw_encoded}&showDetail=1"
+    # 파라미터 구성 (hintKeywords 활성화)
+    params = urllib.parse.urlencode({
+        "hintKeywords": ",".join(keywords[:5]),
+        "showDetail": "1"
+    })
+    full_url = f"https://api.searchad.naver.com{uri}?{params}"
     
     signature = generate_signature(timestamp, method, uri, AD_SECRET_KEY)
     
@@ -224,9 +218,10 @@ with st.sidebar:
                 })
             st.session_state.table_data = table_data
             st.session_state.all_trend = fetch_naver_trend(keywords_list, start_date, end_date)
-            # 메인 키워드 기준으로 연관 검색어 한 번만 미리 조회
+            # 메인 키워드 기준으로 연관 검색어 세션 저장
             st.session_state.current_main_kw = keywords_list[0]
             st.session_state.cached_related = fetch_related_keywords(keywords_list[0])
+            st.rerun() # 세션 반영을 위해 리런
 
 if st.session_state.analyzed:
     st.subheader("📋 정밀 키워드 분석 리포트")
