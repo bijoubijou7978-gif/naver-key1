@@ -27,13 +27,19 @@ def generate_signature(timestamp, method, uri, secret_key):
 
 def fetch_actual_search_volume(keywords):
     """네이버 검색광고 API를 사용하여 실제 PC/모바일 월간 조회수를 가져옴"""
+    if not keywords:
+        return []
+        
     timestamp = str(int(time.time() * 1000))
     method = "GET"
     uri = "/keywordstool"
     
-    # 키워드들을 콤마로 연결 (최대 5개 제한 권장)
-    params = f"?hintKeywords={urllib.parse.quote(','.join(keywords))}&showDetail=1"
-    full_url = f"https://api.searchad.naver.com{uri}{params}"
+    # 파라미터 구성 (urlencode 사용, 공백은 %20으로 인코딩)
+    params = urllib.parse.urlencode({
+        "hintKeywords": ",".join(keywords[:5]), # 최대 5개까지만 허용
+        "showDetail": "1"
+    }, quote_via=urllib.parse.quote)
+    full_url = f"https://api.searchad.naver.com{uri}?{params}"
     
     signature = generate_signature(timestamp, method, uri, AD_SECRET_KEY)
     
@@ -47,6 +53,17 @@ def fetch_actual_search_volume(keywords):
         response = urllib.request.urlopen(request)
         data = json.loads(response.read().decode('utf-8'))
         return data.get('keywordList', [])
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        try:
+            error_json = json.loads(error_body)
+            # 네이버 API는 보통 {"code": "...", "message": "..."} 형태의 에러를 반환함
+            detail = error_json.get('message', error_body)
+        except:
+            detail = error_body
+            
+        st.error(f"검색광고 API 오류 ({e.code}): {detail}")
+        return []
     except Exception as e:
         st.error(f"검색광고 API 오류: {e}")
         return []
@@ -121,6 +138,10 @@ with st.sidebar:
         st.session_state.related_volumes = {}
         
         with st.spinner('네이버 광고자 데이터를 긁어오는 중...'):
+            if len(keywords_list) > 5:
+                st.warning("네이버 광고 API는 한 번에 최대 5개 키워드만 조회 가능합니다. 상위 5개만 분석합니다.")
+                keywords_list = keywords_list[:5]
+                
             # 실제 조회수 데이터 (Search Ad API)
             ad_data_list = fetch_actual_search_volume(keywords_list)
             ad_lookup = {item['relKeyword']: item for item in ad_data_list}
