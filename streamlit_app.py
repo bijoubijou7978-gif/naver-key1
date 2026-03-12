@@ -80,12 +80,11 @@ def fetch_actual_search_volume(keywords):
     method = "GET"
     uri = "/keywordstool"
     
-    # 파라미터 구성 (hintKeywords 활성화)
-    params = urllib.parse.urlencode({
-        "hintKeywords": ",".join(keywords[:5]),
-        "showDetail": "1"
-    })
-    full_url = f"https://api.searchad.naver.com{uri}?{params}"
+    # 파라미터 구성 (공백을 %20으로, 콤마는 유지하여 인코딩)
+    # 네이버 API는 공백이 +로 인코딩되면 400 에러를 낼 수 있음
+    kw_str = ",".join(keywords[:5])
+    kw_encoded = urllib.parse.quote(kw_str, safe=",")
+    full_url = f"https://api.searchad.naver.com{uri}?hintKeywords={kw_encoded}&showDetail=1"
     
     signature = generate_signature(timestamp, method, uri, AD_SECRET_KEY)
     
@@ -208,13 +207,25 @@ with st.sidebar:
                 pc_num = int(pc_vol) if pc_vol.isdigit() else 10 # 미미한 수치는 10으로 처리
                 mo_num = int(mo_vol) if mo_vol.isdigit() else 10
                 
+                # 경쟁 지수 계산 (블로그 수 / 총 조회수)
+                total_vol = pc_num + mo_num
+                comp_ratio = blog_count / total_vol if total_vol > 0 else 0
+                
+                # 등급 평가
+                if comp_ratio < 0.1: rating = "⭐ 매우 낮음 (꿀)"
+                elif comp_ratio < 0.5: rating = "✅ 낮음"
+                elif comp_ratio < 2.0: rating = "⚠️ 보통"
+                else: rating = "🔥 높음 (치열)"
+                
                 table_data.append({
                     "NO": i + 1,
                     "키워드": kw,
-                    "월간 PC 조회수": pc_num,
-                    "월간 Mobile 조회수": mo_num,
-                    "총 합계": pc_num + mo_num,
-                    "블로그 게시글수": blog_count
+                    "월간 PC": pc_num,
+                    "월간 Mobile": mo_num,
+                    "총 합계": total_vol,
+                    "블로그수": blog_count,
+                    "경쟁 지수": round(comp_ratio, 2),
+                    "등급": rating
                 })
             st.session_state.table_data = table_data
             st.session_state.all_trend = fetch_naver_trend(keywords_list, start_date, end_date)
@@ -224,16 +235,34 @@ with st.sidebar:
             st.rerun() # 세션 반영을 위해 리런
 
 if st.session_state.analyzed:
-    st.subheader("📋 정밀 키워드 분석 리포트")
-    # 천단위 콤마 표시를 위한 포맷팅
+    st.markdown("### 📋 정밀 키워드 분석 리포트")
+    
     df = pd.DataFrame(st.session_state.table_data)
-    styled_df = df.style.format({
-        "월간 PC 조회수": "{:,}",
-        "월간 Mobile 조회수": "{:,}",
-        "총 합계": "{:,}",
-        "블로그 게시글수": "{:,}"
-    })
-    st.table(styled_df)
+    
+    # 데이터프레임 시각화 설정
+    st.dataframe(
+        df,
+        column_config={
+            "월간 PC": st.column_config.NumberColumn(format="%d"),
+            "월간 Mobile": st.column_config.NumberColumn(format="%d"),
+            "총 합계": st.column_config.NumberColumn(format="%d"),
+            "블로그수": st.column_config.NumberColumn(format="%d"),
+            "경쟁 지수": st.column_config.NumberColumn(format="%.2f"),
+            "등급": st.column_config.TextColumn("상태"),
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # 엑셀/CSV 다운로드 버튼
+    csv = df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        label="📄 분석 리포트 다운로드 (CSV)",
+        data=csv,
+        file_name=f"naver_keyword_report_{datetime.date.today()}.csv",
+        mime="text/csv",
+    )
+    
     st.caption("※ 조회수 데이터는 최근 30일간의 네이버 검색광고 공식 집계 데이터입니다.")
 
     # 연관 검색어 섹션
@@ -251,23 +280,41 @@ if st.session_state.analyzed:
             with cols[idx % 4]:
                 if st.button(r_kw, key=f"btn_{r_kw}", use_container_width=True):
                     # 연관검색어도 광고 API로 조회수 가져오기
-                    ad_res = fetch_actual_search_volume([r_kw])
-                    if ad_res:
-                        p = str(ad_res[0].get('monthlyPcQcCnt', '0')).replace('< ', '')
-                        m = str(ad_res[0].get('monthlyMobileQcCnt', '0')).replace('< ', '')
-                        st.session_state.related_volumes[r_kw] = int(p) + int(m)
+                    with st.spinner('조회 중...'):
+                        ad_res = fetch_actual_search_volume([r_kw])
+                        if ad_res:
+                            # 여러 결과 중 클릭한 키워드와 정확히 일치하는 것 찾기
+                            match = next((item for item in ad_res if item['relKeyword'].replace(" ", "") == r_kw.replace(" ", "")), ad_res[0])
+                            
+                            p_raw = str(match.get('monthlyPcQcCnt', '0')).replace('<', '').strip()
+                            m_raw = str(match.get('monthlyMobileQcCnt', '0')).replace('<', '').strip()
+                            
+                            # 비어있거나 숫자가 아니면 10으로 처리
+                            p = int(p_raw) if p_raw.isdigit() else 10
+                            m = int(m_raw) if m_raw.isdigit() else 10
+                            
+                            st.session_state.related_volumes[r_kw] = p + m
                 
                 if r_kw in st.session_state.related_volumes:
-                    st.markdown(f"<div style='text-align:center; color:#FF4B4B; font-weight:bold;'>📈 {st.session_state.related_volumes[r_kw]:,}회</div>", unsafe_allow_html=True)
+                    vol = st.session_state.related_volumes[r_kw]
+                    st.markdown(f"<div style='text-align:center; color:#FF4B4B; font-weight:bold;'>📈 {vol:,}회</div>", unsafe_allow_html=True)
+                    # 분석 추가 버튼
+                    if st.button("➕ 분석 추가", key=f"add_{r_kw}", use_container_width=True):
+                        new_input = keyword_input + f", {r_kw}"
+                        st.info(f"'{r_kw}'가 추가되었습니다. 상단 버튼을 다시 눌러주세요.")
     
     if st.session_state.all_trend:
         st.divider()
-        st.subheader("📈 최근 트렌드 변화 지수")
+        st.subheader("📈 최근 트렌드 변화 지수 (Naver DataLab)")
         chart_data = []
         for res in st.session_state.all_trend['results']:
             for d in res['data']:
-                chart_data.append({'Date': d['period'], 'Keyword': res['title'], 'Value': d['ratio']})
+                chart_data.append({'날짜': d['period'], '키워드': res['title'], '관심도': d['ratio']})
         chart_df = pd.DataFrame(chart_data)
-        st.line_chart(chart_df.pivot(index='Date', columns='Keyword', values='Value'))
+        
+        # 차트 가독성 개선
+        pivot_df = chart_df.pivot(index='날짜', columns='키워드', values='관심도')
+        st.line_chart(pivot_df, height=400)
+        st.caption("※ 데이터랩 데이터는 선택한 기간 중 최대 검색량을 100으로 둔 상대적 수치입니다.")
 else:
     st.info("왼쪽 대시보드에서 키워드를 입력하고 '실시간 조회수 분석'을 시작하세요.")
